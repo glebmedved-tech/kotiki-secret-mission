@@ -1,0 +1,73 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Котики: перенос прогресса</title>
+<style>body{margin:0;background:#101827;color:#fff;font:18px/1.55 system-ui,Arial}main{max-width:680px;margin:24px auto;padding:22px}h1{font-size:28px;color:#ffd47b;background:#101827}h2{font-size:21px;margin-top:30px}p{overflow-wrap:break-word}button,input{font:inherit}button{padding:13px 18px;min-height:48px;border:0;border-radius:10px;background:#ffae43;color:#251a19;cursor:pointer}button:disabled{opacity:.5;cursor:default}input{max-width:100%;padding:10px 0}a{color:#ffd47b;background:#101827}#transferResult{padding:16px;background:#203855;color:#fff;border-radius:10px}button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #fff;outline-offset:3px}</style>
+<main><h1>Перенести прогресс «Котиков»</h1><p>Сначала сохрани файл на прежнем адресе игры. Затем открой эту страницу на новом адресе и выбери тот же файл. Перенос выполняется на устройстве, без отправки сохранения на сервер.</p><p id="currentSave">Читаем сохранение…</p><h2>С прежнего адреса</h2><button type="button" id="exportSave">Сохранить прогресс в файл</button><h2>На новый адрес</h2><label for="saveFile">Выбери файл kotiki-progress.json</label><br><input id="saveFile" type="file" accept="application/json,.json"><p><button type="button" id="importSave" disabled>Импортировать сохранение</button></p><p id="transferResult" role="status" aria-live="polite">До нажатия кнопки импорта текущее сохранение не изменяется.</p><p><a href="./">Открыть игру на этом адресе</a></p></main>
+<script>(function () {
+  var key = 'catsSecretSave', backupKey = 'catsSecretSave_importBackup', pending = null;
+  var result = document.getElementById('transferResult'), summary = document.getElementById('currentSave');
+  var exportButton = document.getElementById('exportSave'), importButton = document.getElementById('importSave');
+  function validate(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('В файле нет сохранения игры.');
+    if (typeof value.coins !== 'number' || !isFinite(value.coins) || value.coins < 0) throw new Error('В файле некорректный кошелёк.');
+    if (value.nick !== undefined && typeof value.nick !== 'string') throw new Error('В файле некорректный ник.');
+    if (value.owned !== undefined && !Array.isArray(value.owned)) throw new Error('В файле некорректный инвентарь.');
+    if (value.settings !== undefined && (!value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings))) throw new Error('В файле некорректные настройки.');
+    function walk(item, depth) {
+      if (depth > 20) throw new Error('Файл слишком сложный.');
+      if (typeof item === 'string' && (/<\/?[a-z!]/i.test(item) || /javascript:/i.test(item))) throw new Error('В файле обнаружен посторонний код.');
+      if (typeof item === 'number' && !isFinite(item)) throw new Error('В файле обнаружено некорректное число.');
+      if (item && typeof item === 'object') Object.keys(item).forEach(function (name) {
+        if (name === '__proto__' || name === 'constructor' || name === 'prototype') throw new Error('В файле обнаружено недопустимое поле.');
+        walk(item[name], depth + 1);
+      });
+    }
+    walk(value, 0); return value;
+  }
+  function describe(value) { return (value.nick || 'Ты') + ' · монеты: ' + String(value.coins); }
+  function refresh() {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) { summary.textContent = 'На этом адресе сохранение пока не найдено.'; exportButton.disabled = true; return; }
+      summary.textContent = 'Текущее сохранение: ' + describe(validate(JSON.parse(raw)));
+      exportButton.disabled = false;
+    } catch (error) { summary.textContent = 'Не удалось прочитать сохранение: ' + error.message; exportButton.disabled = true; }
+  }
+  exportButton.onclick = function () {
+    try {
+      var payload = validate(JSON.parse(localStorage.getItem(key)));
+      var json = JSON.stringify({format:'kotiki-save-v1',exportedAt:new Date().toISOString(),payload:payload}, null, 2);
+      var url = URL.createObjectURL(new Blob([json], {type:'application/json'})), link = document.createElement('a');
+      link.href = url; link.download = 'kotiki-progress.json'; document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      result.textContent = 'Файл kotiki-progress.json подготовлен. Сохрани его в «Файлы», затем открой эту страницу на новом адресе игры и выбери файл.';
+    } catch (error) { result.textContent = 'Не удалось сохранить файл: ' + error.message; }
+  };
+  document.getElementById('saveFile').onchange = function (event) {
+    pending = null; importButton.disabled = true;
+    var file = event.target.files && event.target.files[0]; if (!file) return;
+    if (file.size > 524288) { result.textContent = 'Этот файл слишком большой для сохранения игры.'; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var value = JSON.parse(reader.result);
+        pending = validate(value && value.format === 'kotiki-save-v1' ? value.payload : value);
+        result.textContent = 'Файл прочитан: ' + describe(pending) + '. Для переноса нажми «Импортировать сохранение». Текущее сохранение на этом адресе будет заменено; его резервная копия останется на устройстве.';
+        importButton.disabled = false;
+      } catch (error) { result.textContent = 'Файл не подходит: ' + error.message; }
+    };
+    reader.onerror = function () { result.textContent = 'Не удалось прочитать файл. Выбери его ещё раз.'; };
+    reader.readAsText(file);
+  };
+  importButton.onclick = function () {
+    if (!pending) return;
+    try {
+      var previous = localStorage.getItem(key);
+      if (previous !== null) localStorage.setItem(backupKey, previous);
+      localStorage.setItem(key, JSON.stringify(pending));
+      pending = null; importButton.disabled = true; refresh();
+      result.textContent = 'Сохранение перенесено. Теперь можно открыть игру на этом адресе.';
+    } catch (error) { result.textContent = 'Не удалось записать сохранение: ' + error.message; }
+  };
+  refresh();
+})();
+</script>
+</html>
