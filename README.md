@@ -1,6 +1,6 @@
 # Котики: Тайная миссия
 
-Проверочная копия игры 5.4.3 на GitHub Pages для сравнения доступности с Netlify. Статические HTML/JS, без серверного движка. Ожидаемый адрес: https://glebmedved-tech.github.io/kotiki-secret-mission/ .
+Проверочная копия игры 5.5.0 на GitHub Pages для сравнения доступности с Netlify. Статические HTML/JS, без серверного движка. Ожидаемый адрес: https://glebmedved-tech.github.io/kotiki-secret-mission/ .
 
 Сохранения остаются в localStorage браузера. Между доменами автоматически не переносятся. Страница save-transfer.html экспортирует/импортирует JSON вручную, только после действий пользователя. Перед заменой импорт сохраняет предыдущий JSON в catsSecretSave_importBackup.
 
