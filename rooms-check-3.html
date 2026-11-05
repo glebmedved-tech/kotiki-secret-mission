@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Котики: проверка соединения №3</title>
+<style>
+body{margin:0;background:#101827;color:#fff;font:18px system-ui,Arial;line-height:1.5}
+main{max-width:650px;margin:24px auto;padding:20px}
+h1{font-size:28px;color:#ffd47b;background:#101827;line-height:1.2}
+button,a{font:inherit}
+button{min-height:48px;padding:14px 20px;border:0;border-radius:10px;background:#ffbd59;color:#251a19;cursor:pointer}
+button:disabled{opacity:.65;cursor:wait}
+button:focus,a:focus{outline:3px solid #fff;outline-offset:4px}
+a{color:#ffd47b;background:#101827;text-underline-offset:3px}
+#result{min-height:3em;white-space:pre-wrap;overflow-wrap:break-word;color:#fff;background:#203855;padding:18px;border-radius:10px}
+#serverLink[hidden]{display:none}
+small{color:#c8d9e7;background:#101827}
+</style>
+<main>
+<h1>Котики: проверка соединения №3</h1>
+<p>Проверим новый способ связи через страницу сервера. Оставь вкладку открытой. Прогресс игры не меняется.</p>
+<button id="test" type="button" disabled>Проверить комнаты</button>
+<p id="result" role="status" aria-live="polite">Подключаем кнопку проверки…</p>
+<p id="serverLink" hidden><a href="https://kotiki-friends-rooms.kotiki-rooms-portable.workers.dev/" target="_blank" rel="noopener noreferrer">Открыть страницу сервера</a><br><small>Если появится английское сообщение или ошибка Safari, пришли фото этого экрана.</small></p>
+<p><a href="./">Открыть игру</a></p>
+<small>Проверка создаёт одну временную комнату и сразу пытается закрыть её. Сохранения, монеты и одежда не меняются. Обычно это занимает несколько секунд, в активной вкладке — обычно до 35 секунд.</small>
+<noscript><p>JavaScript выключен. Для проверки комнат его нужно включить в настройках Safari.</p></noscript>
+</main>
+<script>// Parent side: accepts messages only from this server frame, never from other tabs.
+(function(){
+ 'use strict';
+ var origin='https://kotiki-friends-rooms.kotiki-rooms-portable.workers.dev';
+ var channel='kotiki-rooms-bridge-v1',frame=null,ready=false,loading=false,sequence=0,pending={},waiting=[],loadTimer=null;
+ function id(){return 'r'+Date.now().toString(36)+'_'+(++sequence);}
+ function failed(kind){loading=false;ready=false;clearTimeout(loadTimer);var list=waiting;waiting=[];for(var i=0;i<list.length;i++)list[i](kind);if(frame){frame.onload=null;frame.onerror=null;frame.parentNode.removeChild(frame);frame=null;}}
+ function ensure(callback){
+  if(ready){callback(null);return;}
+  waiting.push(callback);if(loading)return;loading=true;
+  frame=document.createElement('iframe');frame.title='Соединение комнат';frame.tabIndex=-1;frame.setAttribute('aria-hidden','true');frame.style.cssText='position:absolute;width:1px;height:1px;left:-10000px;top:0;border:0';
+  frame.onload=function(){frame.contentWindow.postMessage({channel:channel,id:'hello',type:'ping'},origin);};
+  frame.onerror=function(){failed('frame');};loadTimer=setTimeout(function(){failed('handshake-timeout');},8000);
+  frame.src=origin+'/bridge';document.body.appendChild(frame);
+ }
+ window.addEventListener('message',function(event){
+  if(!frame||event.source!==frame.contentWindow||event.origin!==origin)return;
+  var data=event.data;if(!data||data.channel!==channel)return;
+  if(data.type==='ready'&&data.id==='hello'&&loading){clearTimeout(loadTimer);loading=false;ready=true;var list=waiting;waiting=[];for(var i=0;i<list.length;i++)list[i](null);return;}
+  if(data.type!=='response'||typeof data.id!=='string'||!pending[data.id])return;
+  var request=pending[data.id];delete pending[data.id];clearTimeout(request.timer);request.callback(data.error||null,data.status,data.text);
+ });
+ window.KotikiRoomBridge={request:function(body,callback){
+  ensure(function(error){if(error){callback(error);return;}var key=id();var timer=setTimeout(function(){if(!pending[key])return;delete pending[key];callback('response-timeout');},12000);pending[key]={callback:callback,timer:timer};
+   try{frame.contentWindow.postMessage({channel:channel,id:key,type:'request',body:body},origin);}catch(ignore){clearTimeout(timer);delete pending[key];callback('send');}
+  });
+ }};
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  var API = 'https://kotiki-friends-rooms.kotiki-rooms-portable.workers.dev/api';
+  var button = document.getElementById('test');
+  var result = document.getElementById('result');
+  var fallback = document.getElementById('serverLink');
+
+  function finish(text, showServer) {
+    result.textContent = text;
+    fallback.hidden = !showServer;
+    button.disabled = false;
+    button.textContent = 'Проверить комнаты';
+  }
+
+  function request(body, callback) {
+    window.KotikiRoomBridge.request(body,function(error,status,text){callback(error||'load',status||0,text||'');});
+  }
+
+  button.onclick = function () {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Проверяем…';
+    fallback.hidden = true;
+    result.textContent = 'Пробуем создать временную комнату. Ждём ответ до 20 секунд…';
+    var started = Date.now();
+    request({action:'create',name:'Проверка связи',capacity:2,map:16}, function (kind, status, text) {
+      if (kind === 'timeout') {
+        finish('Сервер комнат не ответил за 8 секунд. Пришли фото этого результата. Прямой адрес уже работает, но связь из игры пока не подтверждена.', true);
+        return;
+      }
+      if (kind !== 'load' || status === 0) {
+        var labels={'frame':'Safari не загрузил служебную страницу сервера.','handshake-timeout':'Страница сервера не подтвердила соединение за 8 секунд.','network':'Страница сервера открылась, но её собственный запрос не получил ответ.','timeout':'Страница сервера открылась, но API не ответил за 10 секунд.','response-timeout':'Ответ страницы сервера задержался.','send':'Не удалось передать запрос странице сервера.'};finish('Проверка №3: '+(labels[kind]||'Не удалось завершить соединение.')+' Пришли фото этого сообщения.', true);
+        return;
+      }
+      if (status < 200 || status >= 300) {
+        finish('Сервер ответил ошибкой HTTP ' + status + '. Пришли этот номер. Можно также открыть страницу сервера ниже.', true);
+        return;
+      }
+      var room;
+      try { room = JSON.parse(text); } catch (ignore) {
+        finish('Пришёл ответ, но это не данные сервера комнат. Открой страницу сервера ниже и пришли фото результата.', true);
+        return;
+      }
+      if (!room || typeof room.code !== 'string' || !/^\d{4}$/.test(room.code) || typeof room.token !== 'string' || !room.token) {
+        finish('Сервер ответил, но не выдал правильный код комнаты. Пришли фото этого сообщения.', false);
+        return;
+      }
+      var seconds = ((Date.now() - started) / 1000).toFixed(1);
+      result.textContent = 'Связь работает! Комната создана за ' + seconds + ' с. Закрываем проверочную комнату…';
+      request({action:'leave',code:room.code,token:room.token}, function (cleanupKind, cleanupStatus, cleanupText) {
+        var closed = false;
+        if (cleanupKind === 'load' && cleanupStatus >= 200 && cleanupStatus < 300) {
+          try { closed = JSON.parse(cleanupText).closed === true; } catch (ignore) {}
+        }
+        room = null;
+        finish(closed ? 'Проверка успешна! Safari создаёт комнаты на новом сервере. Проверочная комната закрыта. Пришли фото этого сообщения.' : 'Связь работает! Комната создана, но её закрытие не подтверждено. Она закроется автоматически. Пришли фото этого сообщения.', false);
+      });
+    });
+  };
+  if (location.origin !== 'https://glebmedved-tech.github.io') { result.textContent='Открой проверку именно по ссылке GitHub, а не из сохранённого файла.'; } else if (/^https:\/\//.test(API)) {
+    button.disabled = false;
+    result.textContent = 'Нажми «Проверить комнаты». Сохранения игры останутся на месте.';
+  } else {
+    result.textContent = 'Проверочная ссылка ещё не подготовлена.';
+  }
+})();
+</script>
+</html>
